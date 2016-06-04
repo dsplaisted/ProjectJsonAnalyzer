@@ -1,7 +1,9 @@
 ﻿using Octokit;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
@@ -11,24 +13,47 @@ namespace ProjectJsonAnalyzer
     class ProjectJsonFinder
     {
         GitHubClient _client;
+        HttpClient _httpClient;
+        string _storageRoot;
 
         public ProjectJsonFinder()
         {
             _client = new GitHubClient(new ProductHeaderValue("dsplaisted-project-json-analysis"));
+            _httpClient = new HttpClient();
+            _storageRoot = Path.Combine(Directory.GetCurrentDirectory(), "Storage");
         }
 
-        public async Task RunAsync()
+        public async Task FindProjectJsonAsync(string repoListPath)
         {
-            await SearchRepo("dotnet/corefx", item => Console.WriteLine(item.HtmlUrl));
+            TransformManyBlock<GitHubRepo, SearchCode> repoSearchBlock = new TransformManyBlock<GitHubRepo, SearchCode>(repo => SearchRepoAsync(repo));
+
+            ActionBlock<SearchCode> downloadFileBlock = new ActionBlock<SearchCode>(DownloadFileAsync, new ExecutionDataflowBlockOptions()
+            {
+                 //MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+                 MaxDegreeOfParallelism = 1
+            });
+
+            repoSearchBlock.LinkTo(downloadFileBlock, new DataflowLinkOptions() { PropagateCompletion = true });
+
+            foreach (var line in File.ReadLines(repoListPath).Take(1))
+            {
+                var repo = GitHubRepo.Parse(line);
+                repoSearchBlock.Post(repo);
+            }
+
+            repoSearchBlock.Complete();
+            await downloadFileBlock.Completion;
         }
 
-        public async Task SearchRepo(string repo, Action<SearchCode> resultProcessor)
+        public async Task<IEnumerable<SearchCode>> SearchRepoAsync(GitHubRepo repo)
         {
+            List<SearchCode> ret = new List<SearchCode>();
+
             var request = new SearchCodeRequest()
             {
                 FileName = "project.json",
             };
-            request.Repos.Add(repo);
+            request.Repos.Add(repo.Owner, repo.Name);
 
             int totalResultsReturned = 0;
 
@@ -39,7 +64,8 @@ namespace ProjectJsonAnalyzer
                 foreach (var item in result.Items)
                 {
                     //Console.WriteLine(item.HtmlUrl);
-                    resultProcessor(item);
+                    //resultProcessor(item);
+                    ret.Add(item);
                 }
 
                 if (result.IncompleteResults)
@@ -59,8 +85,27 @@ namespace ProjectJsonAnalyzer
                     request.Page += 1;
                 }
             }
+
+            return ret;
         }
 
-   
+        public async Task DownloadFileAsync(SearchCode item)
+        {
+            string path = Path.Combine(_storageRoot, item.Repository.Owner.Login, item.Repository.Name, item.Path.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+
+            var content = await _client.Repository.Content.GetAllContents(item.Repository.Owner.Login, item.Repository.Name, item.Path);
+
+            var file = content.Single();
+            File.WriteAllText(path, file.Content);
+
+            //var uri = item.GitUrl;
+
+            //var response = await _httpClient.GetAsync(uri);
+            //using (var fs = File.OpenWrite(path))
+            //{
+            //    await response.Content.CopyToAsync(fs);
+            //}
+        }
     }
 }

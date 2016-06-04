@@ -20,7 +20,7 @@ namespace ProjectJsonAnalyzer
             try
             {
                 var finder = new ProjectJsonFinder();
-                await finder.RunAsync();
+                await finder.FindProjectJsonAsync(@"C:\Users\daplaist\OneDrive - Microsoft\MSBuild for .NET Core\DotNetRepos10000.txt");
             }
             catch (Exception ex)
             {
