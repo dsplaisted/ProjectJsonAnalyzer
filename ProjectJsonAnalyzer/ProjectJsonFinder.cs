@@ -16,6 +16,9 @@ namespace ProjectJsonAnalyzer
         HttpClient _httpClient;
         string _storageRoot;
 
+        GitHubThrottler _throttler = new GitHubThrottler();
+        GitHubThrottler _searchThrottler = new GitHubThrottler();
+
         public ProjectJsonFinder()
         {
             _client = new GitHubClient(new ProductHeaderValue("dsplaisted-project-json-analysis"));
@@ -29,13 +32,13 @@ namespace ProjectJsonAnalyzer
 
             ActionBlock<SearchCode> downloadFileBlock = new ActionBlock<SearchCode>(DownloadFileAsync, new ExecutionDataflowBlockOptions()
             {
-                 //MaxDegreeOfParallelism = Environment.ProcessorCount * 4
-                 MaxDegreeOfParallelism = 1
+                 MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+                 //MaxDegreeOfParallelism = 1
             });
 
             repoSearchBlock.LinkTo(downloadFileBlock, new DataflowLinkOptions() { PropagateCompletion = true });
 
-            foreach (var line in File.ReadLines(repoListPath).Take(1))
+            foreach (var line in File.ReadLines(repoListPath)/*.Take(1)*/)
             {
                 var repo = GitHubRepo.Parse(line);
                 repoSearchBlock.Post(repo);
@@ -59,7 +62,10 @@ namespace ProjectJsonAnalyzer
 
             while (true)
             {
-                var result = await _client.Search.SearchCode(request);
+                var result = await 
+                    _searchThrottler.RunAsync( () =>
+                        _client.Search.SearchCode(request)
+                    );
 
                 foreach (var item in result.Items)
                 {
@@ -94,9 +100,10 @@ namespace ProjectJsonAnalyzer
             string path = Path.Combine(_storageRoot, item.Repository.Owner.Login, item.Repository.Name, item.Path.Replace('/', Path.DirectorySeparatorChar));
             Directory.CreateDirectory(Path.GetDirectoryName(path));
 
-            var content = await _client.Repository.Content.GetAllContents(item.Repository.Owner.Login, item.Repository.Name, item.Path);
+            var file = await _throttler.RunAsync( () =>
+                    _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path)
+                );
 
-            var file = content.Single();
             File.WriteAllText(path, file.Content);
 
             //var uri = item.GitUrl;
