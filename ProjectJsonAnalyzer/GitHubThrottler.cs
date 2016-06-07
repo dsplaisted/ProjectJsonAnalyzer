@@ -80,7 +80,14 @@ namespace ProjectJsonAnalyzer
                             //  Wait until the reset time is reached or until another request has completed
                             //  (which will update the remaining requests and reset time, possibly allowing
                             //  this request to be executed)
-                            Task delayTask = Task.Delay(resetTime.Subtract(DateTimeOffset.UtcNow));
+
+                            TimeSpan delayTime = resetTime.Subtract(DateTimeOffset.UtcNow);
+                            if (delayTime.TotalMilliseconds < 10)
+                            {
+                                delayTime = TimeSpan.FromMilliseconds(10);
+                            }
+
+                            Task delayTask = Task.Delay(delayTime);
                             Task requestCompletedTask = _requestCompleted.WaitOneAsync();
 
                             if (await Task.WhenAny(delayTask, requestCompletedTask) == requestCompletedTask)
