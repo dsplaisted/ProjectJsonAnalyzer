@@ -18,6 +18,7 @@ namespace ProjectJsonAnalyzer
         ManualResetEvent _requestCompleted = new ManualResetEvent(false);
 
         int _remainingRequests = 10;
+        int _limit = 10;
         DateTimeOffset _resetTime = DateTimeOffset.UtcNow;
         
 
@@ -98,6 +99,16 @@ namespace ProjectJsonAnalyzer
                                 //  doing it multiple times shouldn't hurt (I think)
                                 _requestCompleted.Reset();
                             }
+                            else
+                            {
+                                lock (_lockObject)
+                                {
+                                    if (_remainingRequests == 0)
+                                    {
+                                        _remainingRequests = _limit;
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -128,6 +139,7 @@ namespace ProjectJsonAnalyzer
                 lock (_lockObject)
                 {
                     _remainingRequests = result.RateLimit.Remaining;
+                    _limit = result.RateLimit.Limit;
                     _resetTime = result.RateLimit.Reset;
                 }
 
@@ -142,6 +154,7 @@ namespace ProjectJsonAnalyzer
                 lock (_lockObject)
                 {
                     _remainingRequests = ex.Remaining;
+                    _limit = ex.Limit;
                     _resetTime = ex.Reset;
                 }
 
