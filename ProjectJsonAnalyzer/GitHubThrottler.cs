@@ -1,4 +1,5 @@
 ﻿using Octokit;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -10,6 +11,8 @@ namespace ProjectJsonAnalyzer
 {
     class GitHubThrottler
     {
+        ILogger _logger;
+
         object _lockObject = new object();
         int _executingOperations = 0;
         ManualResetEvent _requestCompleted = new ManualResetEvent(false);
@@ -21,28 +24,31 @@ namespace ProjectJsonAnalyzer
         class GitHubTask
         {
             public Func<Task<IRateLimit>> Action { get; }
+            public object OperationDescription { get; }
             public TaskCompletionSource<IRateLimit> CompletionSource { get; }
 
-            public GitHubTask(Func<Task<IRateLimit>> action)
+            public GitHubTask(Func<Task<IRateLimit>> action, object operationDescription)
             {
                 Action = action;
+                OperationDescription = operationDescription;
                 CompletionSource = new TaskCompletionSource<IRateLimit>();
             }
         }
 
-        public GitHubThrottler()
+        public GitHubThrottler(ILogger logger)
         {
+            _logger = logger;
         }
 
-        public async Task<T> RunAsync<T>(Func<Task<T>> action) where T : IRateLimit
+        public async Task<T> RunAsync<T>(Func<Task<T>> action, object operationDescription) where T : IRateLimit
         {
-            var result = await RunAsync2(async () => (IRateLimit) await action());
+            var result = await RunAsync2(async () => (IRateLimit) await action(), operationDescription);
             return (T)result;
         }
 
-        Task<IRateLimit> RunAsync2(Func<Task<IRateLimit>> action)
+        Task<IRateLimit> RunAsync2(Func<Task<IRateLimit>> action, object operationDescription)
         {
-            var githubTask = new GitHubTask(action);
+            var githubTask = new GitHubTask(action, operationDescription);
             RunGitHubTaskThrottled(githubTask);
             return githubTask.CompletionSource.Task;
         }
@@ -69,6 +75,8 @@ namespace ProjectJsonAnalyzer
 
                         if (!canRunNow)
                         {
+                            _logger.Information("{@Operation} waiting for rate limit reset or finished request", task.OperationDescription);
+
                             //  Wait until the reset time is reached or until another request has completed
                             //  (which will update the remaining requests and reset time, possibly allowing
                             //  this request to be executed)
@@ -83,7 +91,6 @@ namespace ProjectJsonAnalyzer
                                 //  doing it multiple times shouldn't hurt (I think)
                                 _requestCompleted.Reset();
                             }
-
                         }
                     }
 
@@ -105,7 +112,11 @@ namespace ProjectJsonAnalyzer
         {
             try
             {
+                _logger.Information("Running {@Operation}", task.OperationDescription);
+
                 IRateLimit result = await task.Action();
+
+                _logger.Information("Finished {@Operation}", task.OperationDescription);
 
                 lock (_lockObject)
                 {
@@ -118,6 +129,9 @@ namespace ProjectJsonAnalyzer
             }
             catch (RateLimitExceededException ex)
             {
+                _logger.Warning("Rate limit exceeded for {@Operation}, resets at {ResetTime}. {RemainingRequests}/{RequestLimit}",
+                    task.OperationDescription, ex.Reset, ex.Remaining, ex.Limit);
+
                 lock (_lockObject)
                 {
                     _remainingRequests = ex.Remaining;
@@ -128,6 +142,7 @@ namespace ProjectJsonAnalyzer
             }
             catch (Exception ex)
             {
+                _logger.Error(ex, "Failed {@Operation}", task.OperationDescription);
                 task.CompletionSource.SetException(ex);
             }
             finally
