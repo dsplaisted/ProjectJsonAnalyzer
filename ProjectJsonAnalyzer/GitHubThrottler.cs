@@ -76,8 +76,6 @@ namespace ProjectJsonAnalyzer
 
                         if (!canRunNow)
                         {
-                            _logger.Information("{@Operation} waiting for rate limit reset or finished request", task.OperationDescription);
-
                             //  Wait until the reset time is reached or until another request has completed
                             //  (which will update the remaining requests and reset time, possibly allowing
                             //  this request to be executed)
@@ -87,6 +85,10 @@ namespace ProjectJsonAnalyzer
                             {
                                 delayTime = TimeSpan.FromMilliseconds(10);
                             }
+
+                            _logger.ForContext("ResetTime", resetTime)
+                                .Information("{@Operation} waiting for rate limit reset (in {ResetDelay} or finished request",
+                                task.OperationDescription, delayTime);
 
                             Task delayTask = Task.Delay(delayTime);
                             Task requestCompletedTask = _requestCompleted.WaitOneAsync();
@@ -130,11 +132,11 @@ namespace ProjectJsonAnalyzer
         {
             try
             {
-                _logger.Information("Running {@Operation}", task.OperationDescription);
+                _logger.Information("Running {@Operation} ({RemainingRequests}/{RequestLimit})", task.OperationDescription, _remainingRequests, _limit);
 
                 IRateLimit result = await task.Action();
 
-                _logger.Information("Finished {@Operation}", task.OperationDescription);
+                _logger.Information("Finished {@Operation} ({RemainingRequests}/{RequestLimit})", task.OperationDescription, _remainingRequests, _limit);
 
                 lock (_lockObject)
                 {
@@ -148,8 +150,10 @@ namespace ProjectJsonAnalyzer
             }
             catch (RateLimitExceededException ex)
             {
-                _logger.Warning("Rate limit exceeded for {@Operation}, resets at {ResetTime}. {RemainingRequests}/{RequestLimit}",
-                    task.OperationDescription, ex.Reset, ex.Remaining, ex.Limit);
+                _logger
+                    .ForContext("ResetTime", ex.Reset)
+                    .Warning("Rate limit exceeded for {@Operation}, resets in {ResetDelay}. {RemainingRequests}/{RequestLimit}",
+                    task.OperationDescription, ex.Reset.Subtract(DateTimeOffset.UtcNow), ex.Remaining, ex.Limit);
 
                 lock (_lockObject)
                 {
