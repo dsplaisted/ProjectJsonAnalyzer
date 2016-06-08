@@ -140,9 +140,9 @@ namespace ProjectJsonAnalyzer
                         () => _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path),
                         new { Operation = "Download", Repo = item.Repository.Owner.Login + "/" + item.Repository.Name, Path = item.Path }
                     );
-            }
 
-            _storage.StoreFile(item.Repository.Owner.Login, item.Repository.Name, item.Path, file.Content);
+                _storage.StoreFile(item.Repository.Owner.Login, item.Repository.Name, item.Path, file.Content);
+            }
 
             searchResult.TaskCompletionSource.SetResult(true);
         }
