@@ -13,17 +13,30 @@ namespace ProjectJsonAnalyzer
 {
     class ProjectJsonFinder
     {
+        ResultStorage _storage;
         ILogger _logger;
 
         GitHubClient _client;
         HttpClient _httpClient;
-        string _storageRoot;
 
         GitHubThrottler _throttler;
         GitHubThrottler _searchThrottler;
 
-        public ProjectJsonFinder(ILogger logger)
+        class SearchResult
         {
+            public SearchCode SearchCode { get; }
+            public TaskCompletionSource<bool> TaskCompletionSource { get; }
+            public SearchResult(SearchCode searchCode)
+            {
+                SearchCode = searchCode;
+                TaskCompletionSource = new TaskCompletionSource<bool>();
+            }
+
+        }
+
+        public ProjectJsonFinder(ResultStorage storage, ILogger logger)
+        {
+            _storage = storage;
             _logger = logger;
 
             _throttler = new GitHubThrottler(logger);
@@ -31,14 +44,13 @@ namespace ProjectJsonAnalyzer
 
             _client = new GitHubClient(new ProductHeaderValue("dsplaisted-project-json-analysis"));
             _httpClient = new HttpClient();
-            _storageRoot = Path.Combine(Directory.GetCurrentDirectory(), "Storage");
         }
 
         public async Task FindProjectJsonAsync(string repoListPath)
         {
-            TransformManyBlock<GitHubRepo, SearchCode> repoSearchBlock = new TransformManyBlock<GitHubRepo, SearchCode>(repo => SearchRepoAsync(repo));
+            TransformManyBlock<GitHubRepo, SearchResult> repoSearchBlock = new TransformManyBlock<GitHubRepo, SearchResult>(repo => SearchRepoAsync(repo));
 
-            ActionBlock<SearchCode> downloadFileBlock = new ActionBlock<SearchCode>(DownloadFileAsync, new ExecutionDataflowBlockOptions()
+            ActionBlock<SearchResult> downloadFileBlock = new ActionBlock<SearchResult>(DownloadFileAsync, new ExecutionDataflowBlockOptions()
             {
                  MaxDegreeOfParallelism = Environment.ProcessorCount * 4
                  //MaxDegreeOfParallelism = 1
@@ -56,9 +68,15 @@ namespace ProjectJsonAnalyzer
             await downloadFileBlock.Completion;
         }
 
-        public async Task<IEnumerable<SearchCode>> SearchRepoAsync(GitHubRepo repo)
+        async Task<IEnumerable<SearchResult>> SearchRepoAsync(GitHubRepo repo)
         {
-            List<SearchCode> ret = new List<SearchCode>();
+            List<SearchResult> ret = new List<SearchResult>();
+
+            if (_storage.HasRepoResults(repo.Owner, repo.Name))
+            {
+                _logger.Information("{Repo} already downloaded", repo.Owner + "/" + repo.Name);
+                return ret;
+            }
 
             var request = new SearchCodeRequest()
             {
@@ -80,7 +98,7 @@ namespace ProjectJsonAnalyzer
                 {
                     //Console.WriteLine(item.HtmlUrl);
                     //resultProcessor(item);
-                    ret.Add(item);
+                    ret.Add(new SearchResult(item));
                 }
 
                 if (result.IncompleteResults)
@@ -102,28 +120,29 @@ namespace ProjectJsonAnalyzer
                 }
             }
 
+            var ignore = Task.WhenAll(ret.Select(sr => sr.TaskCompletionSource.Task)).ContinueWith(_ => RecordRepoCompleted(repo, ret));
+
             return ret;
         }
 
-        public async Task DownloadFileAsync(SearchCode item)
+        async Task DownloadFileAsync(SearchResult searchResult)
         {
-            string path = Path.Combine(_storageRoot, item.Repository.Owner.Login, item.Repository.Name, item.Path.Replace('/', Path.DirectorySeparatorChar));
-            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            var item = searchResult.SearchCode;
 
             var file = await _throttler.RunAsync(
                     () => _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path),
                     new { Operation = "Download", Repo = item.Repository.Owner.Login + "/" + item.Repository.Name, Path = item.Path }
                 );
 
-            File.WriteAllText(path, file.Content);
+            _storage.StoreFile(item.Repository.Owner.Login, item.Repository.Name, item.Path, file.Content);
 
-            //var uri = item.GitUrl;
+            searchResult.TaskCompletionSource.SetResult(true);
+        }
 
-            //var response = await _httpClient.GetAsync(uri);
-            //using (var fs = File.OpenWrite(path))
-            //{
-            //    await response.Content.CopyToAsync(fs);
-            //}
+        void RecordRepoCompleted(GitHubRepo repo, IEnumerable<SearchResult> results)
+        {
+            _storage.RecordRepoResults(repo.Owner, repo.Name, results.Select(r => r.SearchCode));
+            _logger.Information("Completed repo {Repo}", repo.Owner + "/" + repo.Name);
         }
     }
 }
