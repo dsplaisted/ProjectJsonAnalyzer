@@ -74,59 +74,70 @@ namespace ProjectJsonAnalyzer
 
         async Task<IEnumerable<SearchResult>> SearchRepoAsync(GitHubRepo repo)
         {
-            List<SearchResult> ret = new List<SearchResult>();
+            object operation = null;
 
-            if (_storage.HasRepoResults(repo.Owner, repo.Name))
+            try
             {
-                _logger.Information("{Repo} already downloaded", repo.Owner + "/" + repo.Name);
+                List<SearchResult> ret = new List<SearchResult>();
+
+                if (_storage.HasRepoResults(repo.Owner, repo.Name))
+                {
+                    _logger.Information("{Repo} already downloaded", repo.Owner + "/" + repo.Name);
+                    return ret;
+                }
+
+                var request = new SearchCodeRequest()
+                {
+                    FileName = "project.json",
+                };
+                request.Repos.Add(repo.Owner, repo.Name);
+
+                int totalResultsReturned = 0;
+
+                while (true)
+                {
+                    operation = new { Operation = "Search", Repo = repo.Owner + "/" + repo.Name, Page = request.Page };
+                    var result = await
+                        _searchThrottler.RunAsync(
+                            () => _client.Search.SearchCode(request),
+                            operation
+                        );
+
+                    foreach (var item in result.Items)
+                    {
+                        //Console.WriteLine(item.HtmlUrl);
+                        //resultProcessor(item);
+                        ret.Add(new SearchResult(item));
+                    }
+
+                    if (result.IncompleteResults)
+                    {
+                        _logger.Error("Incomplete search results for {Repo}", repo.Owner + "/" + repo.Name);
+                        //Console.WriteLine($"Incomplete results for {repo}");
+                        break;
+                    }
+
+                    totalResultsReturned += result.Items.Count;
+
+                    if (totalResultsReturned >= result.TotalCount)
+                    {
+                        break;
+                    }
+                    else
+                    {
+                        request.Page += 1;
+                    }
+                }
+
+                var ignore = Task.WhenAll(ret.Select(sr => sr.TaskCompletionSource.Task)).ContinueWith(_ => RecordRepoCompleted(repo, ret));
+
                 return ret;
             }
-
-            var request = new SearchCodeRequest()
+            catch (Exception ex)
             {
-                FileName = "project.json",
-            };
-            request.Repos.Add(repo.Owner, repo.Name);
-
-            int totalResultsReturned = 0;
-
-            while (true)
-            {
-                var result = await 
-                    _searchThrottler.RunAsync(
-                        () => _client.Search.SearchCode(request),
-                        new { Operation = "Search", Repo = repo.Owner + "/" + repo.Name, Page = request.Page }
-                    );
-
-                foreach (var item in result.Items)
-                {
-                    //Console.WriteLine(item.HtmlUrl);
-                    //resultProcessor(item);
-                    ret.Add(new SearchResult(item));
-                }
-
-                if (result.IncompleteResults)
-                {
-                    _logger.Error("Incomplete search results for {Repo}", repo.Owner + "/" + repo.Name);
-                    //Console.WriteLine($"Incomplete results for {repo}");
-                    break;
-                }
-
-                totalResultsReturned += result.Items.Count;
-
-                if (totalResultsReturned >= result.TotalCount)
-                {
-                    break;
-                }
-                else
-                {
-                    request.Page += 1;
-                }
+                _logger.Error(ex, "{Operation} failed", new[] { operation });
+                return Enumerable.Empty<SearchResult>();
             }
-
-            var ignore = Task.WhenAll(ret.Select(sr => sr.TaskCompletionSource.Task)).ContinueWith(_ => RecordRepoCompleted(repo, ret));
-
-            return ret;
         }
 
         async Task DownloadFileAsync(SearchResult searchResult)
