@@ -129,10 +129,18 @@ namespace ProjectJsonAnalyzer
         {
             var item = searchResult.SearchCode;
 
-            var file = await _throttler.RunAsync(
-                    () => _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path),
-                    new { Operation = "Download", Repo = item.Repository.Owner.Login + "/" + item.Repository.Name, Path = item.Path }
-                );
+            if (_storage.HasFile(searchResult.SearchCode.Repository.Owner.Login, searchResult.SearchCode.Repository.Name, searchResult.SearchCode.Path))
+            {
+                _logger.Information("{Path} was already downloaded from {Repo}", searchResult.SearchCode.Path,
+                    searchResult.SearchCode.Repository.Owner.Login + "/" + searchResult.SearchCode.Repository.Name);
+            }
+            else
+            {
+                var file = await _throttler.RunAsync(
+                        () => _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path),
+                        new { Operation = "Download", Repo = item.Repository.Owner.Login + "/" + item.Repository.Name, Path = item.Path }
+                    );
+            }
 
             _storage.StoreFile(item.Repository.Owner.Login, item.Repository.Name, item.Path, file.Content);
 

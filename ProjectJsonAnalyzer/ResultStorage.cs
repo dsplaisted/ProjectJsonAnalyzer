@@ -22,9 +22,19 @@ namespace ProjectJsonAnalyzer
             return Path.Combine(_storageRoot, owner, name);
         }
 
+        string GetFilePath(string owner, string name, string path)
+        {
+            return Path.Combine(GetRepoFolder(owner, name), path.Replace('/', Path.DirectorySeparatorChar));
+        }
+
+        public bool HasFile(string owner, string name, string path)
+        {
+            return File.Exists(GetFilePath(owner, name, path));
+        }
+
         public void StoreFile(string owner, string name, string path, string contents)
         {
-            string storagePath = Path.Combine(GetRepoFolder(owner, name), path.Replace('/', Path.DirectorySeparatorChar));
+            string storagePath = GetFilePath(owner, name, path);
             Directory.CreateDirectory(Path.GetDirectoryName(storagePath));
 
             File.WriteAllText(storagePath, contents);
