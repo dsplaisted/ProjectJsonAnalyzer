@@ -25,6 +25,7 @@ namespace ProjectJsonAnalyzer
 
                 ILogger logger = new LoggerConfiguration()
                     .WriteTo.LiterateConsole()
+                    .WriteTo.Seq("http://localhost:5341")
                     .CreateLogger();
 
                 var finder = new ProjectJsonFinder(storage, logger);
