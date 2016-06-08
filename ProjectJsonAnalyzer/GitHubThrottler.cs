@@ -70,6 +70,9 @@ namespace ProjectJsonAnalyzer
                             {
                                 _executingOperations++;
                                 canRunNow = true;
+                            }
+                            else
+                            {
                                 resetTime = _resetTime;
                             }
                         }
