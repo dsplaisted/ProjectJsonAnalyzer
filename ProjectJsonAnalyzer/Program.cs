@@ -28,7 +28,14 @@ namespace ProjectJsonAnalyzer
                     .WriteTo.Seq("http://localhost:5341")
                     .CreateLogger();
 
-                var finder = new ProjectJsonFinder(storage, logger);
+                string accessToken = null;
+                string tokenFile = @"C:\git\ProjectJsonAnalyzer\ProjectJsonAnalyzer\token.txt";
+                if (File.Exists(tokenFile))
+                {
+                    accessToken = File.ReadAllText(tokenFile);
+                }
+
+                var finder = new ProjectJsonFinder(storage, logger, accessToken);
                 await finder.FindProjectJsonAsync(@"C:\Users\daplaist\OneDrive - Microsoft\MSBuild for .NET Core\DotNetRepos10000.txt");
             }
             catch (Exception ex)

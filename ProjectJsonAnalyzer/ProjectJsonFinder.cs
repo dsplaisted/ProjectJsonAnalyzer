@@ -34,7 +34,7 @@ namespace ProjectJsonAnalyzer
 
         }
 
-        public ProjectJsonFinder(ResultStorage storage, ILogger logger)
+        public ProjectJsonFinder(ResultStorage storage, ILogger logger, string accessToken = null)
         {
             _storage = storage;
             _logger = logger;
@@ -43,6 +43,10 @@ namespace ProjectJsonAnalyzer
             _searchThrottler = new GitHubThrottler(logger);
 
             _client = new GitHubClient(new ProductHeaderValue("dsplaisted-project-json-analysis"));
+            if (accessToken != null)
+            {
+                _client.Credentials = new Credentials(accessToken);
+            }
             _httpClient = new HttpClient();
         }
 
