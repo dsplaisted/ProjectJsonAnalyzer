@@ -143,6 +143,7 @@ namespace ProjectJsonAnalyzer
         async Task DownloadFileAsync(SearchResult searchResult)
         {
             var item = searchResult.SearchCode;
+            var operation = new { Operation = "Download", Repo = item.Repository.Owner.Login + "/" + item.Repository.Name, Path = item.Path };
 
             if (_storage.HasFile(searchResult.SearchCode.Repository.Owner.Login, searchResult.SearchCode.Repository.Name, searchResult.SearchCode.Path))
             {
@@ -151,12 +152,19 @@ namespace ProjectJsonAnalyzer
             }
             else
             {
-                var file = await _throttler.RunAsync(
-                        () => _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path),
-                        new { Operation = "Download", Repo = item.Repository.Owner.Login + "/" + item.Repository.Name, Path = item.Path }
-                    );
+                try
+                {
+                    var file = await _throttler.RunAsync(
+                            () => _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path),
+                            operation
+                        );
 
-                _storage.StoreFile(item.Repository.Owner.Login, item.Repository.Name, item.Path, file.Content);
+                    _storage.StoreFile(item.Repository.Owner.Login, item.Repository.Name, item.Path, file.Content);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Error(ex, "{Operation} failed", new[] { operation });
+                }
             }
 
             searchResult.TaskCompletionSource.SetResult(true);
