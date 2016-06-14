@@ -65,6 +65,7 @@
   <ItemGroup>
     <Compile Include="GitHubRepo.cs" />
     <Compile Include="GitHubThrottler.cs" />
+    <Compile Include="Objects.cs" />
     <Compile Include="Program.cs" />
     <Compile Include="ProjectJsonFinder.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

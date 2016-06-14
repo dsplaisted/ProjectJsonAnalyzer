@@ -50,7 +50,7 @@ namespace ProjectJsonAnalyzer
             return File.Exists(GetResultsFilePath(owner, name));
         }
 
-        public void RecordRepoResults(string owner, string name, IEnumerable<SearchCode> results)
+        public void RecordRepoResults(string owner, string name, IEnumerable<SearchResult> results)
         {
             string storagePath = GetResultsFilePath(owner, name);
             Directory.CreateDirectory(Path.GetDirectoryName(storagePath));
@@ -58,9 +58,20 @@ namespace ProjectJsonAnalyzer
             {
                 foreach (var result in results)
                 {
-                    sw.WriteLine(result.Path);
+                    sw.WriteLine(result.ResultPath);
                 }
             }
+        }
+
+        public IEnumerable<SearchResult> GetRepoResults(string owner, string name)
+        {
+            if (!HasRepoResults(owner, name))
+            {
+                return Enumerable.Empty<SearchResult>();
+            }
+
+            return File.ReadAllLines(GetResultsFilePath(owner, name))
+                .Select(line => new SearchResult(owner, name, line));
         }
     }
 }

@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Threading.Tasks.Dataflow;
 
@@ -15,6 +16,7 @@ namespace ProjectJsonAnalyzer
     {
         ResultStorage _storage;
         ILogger _logger;
+        CancellationToken _cancelToken;
 
         GitHubClient _client;
         HttpClient _httpClient;
@@ -22,22 +24,11 @@ namespace ProjectJsonAnalyzer
         GitHubThrottler _throttler;
         GitHubThrottler _searchThrottler;
 
-        class SearchResult
-        {
-            public SearchCode SearchCode { get; }
-            public TaskCompletionSource<bool> TaskCompletionSource { get; }
-            public SearchResult(SearchCode searchCode)
-            {
-                SearchCode = searchCode;
-                TaskCompletionSource = new TaskCompletionSource<bool>();
-            }
-
-        }
-
-        public ProjectJsonFinder(ResultStorage storage, ILogger logger, string accessToken = null)
+        public ProjectJsonFinder(ResultStorage storage, ILogger logger, CancellationToken cancelToken, string accessToken = null)
         {
             _storage = storage;
             _logger = logger;
+            _cancelToken = cancelToken;
 
             _throttler = new GitHubThrottler(logger);
             _searchThrottler = new GitHubThrottler(logger);
@@ -52,18 +43,26 @@ namespace ProjectJsonAnalyzer
 
         public async Task FindProjectJsonAsync(string repoListPath)
         {
-            TransformManyBlock<GitHubRepo, SearchResult> repoSearchBlock = new TransformManyBlock<GitHubRepo, SearchResult>(repo => SearchRepoAsync(repo));
+            TransformManyBlock<GitHubRepo, SearchResult> repoSearchBlock = new TransformManyBlock<GitHubRepo, SearchResult>(repo => SearchRepoAsync(repo),
+                new ExecutionDataflowBlockOptions()
+                {
+                    MaxDegreeOfParallelism = 1
+                });
 
             ActionBlock<SearchResult> downloadFileBlock = new ActionBlock<SearchResult>(DownloadFileAsync, new ExecutionDataflowBlockOptions()
             {
-                 MaxDegreeOfParallelism = Environment.ProcessorCount * 4
-                 //MaxDegreeOfParallelism = 1
+                 //MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+                 MaxDegreeOfParallelism = 1
             });
 
             repoSearchBlock.LinkTo(downloadFileBlock, new DataflowLinkOptions() { PropagateCompletion = true });
 
             foreach (var line in File.ReadLines(repoListPath)/*.Take(1)*/)
             {
+                if (_cancelToken.IsCancellationRequested)
+                {
+                    break;
+                }
                 var repo = GitHubRepo.Parse(line);
                 repoSearchBlock.Post(repo);
             }
@@ -83,53 +82,59 @@ namespace ProjectJsonAnalyzer
                 if (_storage.HasRepoResults(repo.Owner, repo.Name))
                 {
                     _logger.Information("{Repo} already downloaded", repo.Owner + "/" + repo.Name);
-                    return ret;
+                    ret = _storage.GetRepoResults(repo.Owner, repo.Name).ToList();
                 }
-
-                var request = new SearchCodeRequest()
+                else
                 {
-                    FileName = "project.json",
-                };
-                request.Repos.Add(repo.Owner, repo.Name);
-
-                int totalResultsReturned = 0;
-
-                while (true)
-                {
-                    operation = new { Operation = "Search", Repo = repo.Owner + "/" + repo.Name, Page = request.Page };
-                    var result = await
-                        _searchThrottler.RunAsync(
-                            () => _client.Search.SearchCode(request),
-                            operation
-                        );
-
-                    foreach (var item in result.Items)
+                    var request = new SearchCodeRequest()
                     {
-                        //Console.WriteLine(item.HtmlUrl);
-                        //resultProcessor(item);
-                        ret.Add(new SearchResult(item));
+                        FileName = "project.json",
+                    };
+                    request.Repos.Add(repo.Owner, repo.Name);
+
+                    int totalResultsReturned = 0;
+
+                    while (true)
+                    {
+                        if (_cancelToken.IsCancellationRequested)
+                        {
+                            return Enumerable.Empty<SearchResult>();
+                        }
+
+                        operation = new { Operation = "Search", Repo = repo.Owner + "/" + repo.Name, Page = request.Page };
+                        var result = await
+                            _searchThrottler.RunAsync(
+                                () => _client.Search.SearchCode(request),
+                                operation
+                            );
+
+                        foreach (var item in result.Items)
+                        {
+                            ret.Add(new SearchResult(item));
+                        }
+
+                        if (result.IncompleteResults)
+                        {
+                            _logger.Error("Incomplete search results for {Repo}", repo.Owner + "/" + repo.Name);
+                            break;
+                        }
+
+                        totalResultsReturned += result.Items.Count;
+
+                        if (totalResultsReturned >= result.TotalCount)
+                        {
+                            break;
+                        }
+                        else
+                        {
+                            request.Page += 1;
+                        }
                     }
 
-                    if (result.IncompleteResults)
-                    {
-                        _logger.Error("Incomplete search results for {Repo}", repo.Owner + "/" + repo.Name);
-                        //Console.WriteLine($"Incomplete results for {repo}");
-                        break;
-                    }
-
-                    totalResultsReturned += result.Items.Count;
-
-                    if (totalResultsReturned >= result.TotalCount)
-                    {
-                        break;
-                    }
-                    else
-                    {
-                        request.Page += 1;
-                    }
+                    _storage.RecordRepoResults(repo.Owner, repo.Name, ret);
+                    _logger.Information("Completed searching repo {Repo}", repo.Owner + "/" + repo.Name);
                 }
-
-                var ignore = Task.WhenAll(ret.Select(sr => sr.TaskCompletionSource.Task)).ContinueWith(_ => RecordRepoCompleted(repo, ret));
+                
 
                 return ret;
             }
@@ -142,37 +147,34 @@ namespace ProjectJsonAnalyzer
 
         async Task DownloadFileAsync(SearchResult searchResult)
         {
-            var item = searchResult.SearchCode;
-            var operation = new { Operation = "Download", Repo = item.Repository.Owner.Login + "/" + item.Repository.Name, Path = item.Path };
+            var operation = new { Operation = "Download", Repo = searchResult.RepoOwner + "/" + searchResult.RepoName, Path = searchResult.ResultPath };
 
-            if (_storage.HasFile(searchResult.SearchCode.Repository.Owner.Login, searchResult.SearchCode.Repository.Name, searchResult.SearchCode.Path))
+            if (_storage.HasFile(searchResult.RepoOwner, searchResult.RepoName, searchResult.ResultPath))
             {
-                _logger.Information("{Path} was already downloaded from {Repo}", searchResult.SearchCode.Path,
-                    searchResult.SearchCode.Repository.Owner.Login + "/" + searchResult.SearchCode.Repository.Name);
+                _logger.Information("{Path} was already downloaded from {Repo}", searchResult.ResultPath,
+                    searchResult.RepoOwner + "/" + searchResult.RepoName);
             }
             else
             {
                 try
                 {
                     var file = await _throttler.RunAsync(
-                            () => _client.Repository.Content.GetFileContents(item.Repository.Owner.Login, item.Repository.Name, item.Path),
+                            () => _client.Repository.Content.GetFileContents(searchResult.RepoOwner, searchResult.RepoName, searchResult.ResultPath),
                             operation
                         );
 
-                    _storage.StoreFile(item.Repository.Owner.Login, item.Repository.Name, item.Path, file.Content);
+                    _storage.StoreFile(searchResult.RepoOwner, searchResult.RepoName, searchResult.ResultPath, file.Content);
                 }
                 catch (Exception ex)
                 {
                     _logger.Error(ex, "{Operation} failed", new[] { operation });
                 }
             }
-
-            searchResult.TaskCompletionSource.SetResult(true);
         }
 
         void RecordRepoCompleted(GitHubRepo repo, IEnumerable<SearchResult> results)
         {
-            _storage.RecordRepoResults(repo.Owner, repo.Name, results.Select(r => r.SearchCode));
+            _storage.RecordRepoResults(repo.Owner, repo.Name, results);
             _logger.Information("Completed repo {Repo}", repo.Owner + "/" + repo.Name);
         }
     }
