@@ -27,7 +27,8 @@ namespace ProjectJsonAnalyzer
                 var storage = new ResultStorage(Path.Combine(Directory.GetCurrentDirectory(), "Storage"));
 
                 ILogger logger = new LoggerConfiguration()
-                    .WriteTo.LiterateConsole()
+                    .MinimumLevel.Verbose()
+                    .WriteTo.LiterateConsole(restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
                     .WriteTo.Seq("http://localhost:5341")
                     .CreateLogger();
 
@@ -42,7 +43,7 @@ namespace ProjectJsonAnalyzer
                 string tokenFile = @"C:\git\ProjectJsonAnalyzer\ProjectJsonAnalyzer\token.txt";
                 if (File.Exists(tokenFile))
                 {
-                    accessToken = File.ReadAllText(tokenFile);
+                    accessToken = File.ReadAllLines(tokenFile).First();
                 }
 
                 var finder = new ProjectJsonFinder(storage, logger, cancellationSource.Token, accessToken);

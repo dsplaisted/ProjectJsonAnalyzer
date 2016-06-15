@@ -40,6 +40,28 @@ namespace ProjectJsonAnalyzer
             File.WriteAllText(storagePath, contents);
         }
 
+        //  Returns true if the repo has been renamed
+        public GitHubRepo GetRenamedRepo(GitHubRepo repo)
+        {
+            string renameFile = Path.Combine(GetRepoFolder(repo.Owner, repo.Name), "rename.txt");
+            if (File.Exists(renameFile))
+            {
+                var line = File.ReadAllLines(renameFile).First();
+                return GitHubRepo.Parse(line);
+            }
+            else
+            {
+                return null;
+            }
+        }
+
+        public void SaveRenamedRepo(string oldOwner, string oldName, GitHubRepo newRepo)
+        {
+            string renameFile = Path.Combine(GetRepoFolder(oldOwner, oldName), "rename.txt");
+            Directory.CreateDirectory(Path.GetDirectoryName(renameFile));
+            File.WriteAllText(renameFile, newRepo.ToString());
+        }
+
         string GetResultsFilePath(string owner, string name)
         {
             return Path.Combine(GetRepoFolder(owner, name), "results.txt");

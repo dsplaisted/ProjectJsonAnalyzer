@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -71,17 +72,23 @@ namespace ProjectJsonAnalyzer
             await downloadFileBlock.Completion;
         }
 
-        async Task<IEnumerable<SearchResult>> SearchRepoAsync(GitHubRepo repo)
+        async Task<IEnumerable<SearchResult>> SearchRepoAsync(GitHubRepo repo, bool handleRenamedRepos = true)
         {
             object operation = null;
 
             try
             {
+                GitHubRepo renamedRepo;
+                while ((renamedRepo = _storage.GetRenamedRepo(repo)) != null)
+                {
+                    repo = renamedRepo;
+                }
+
                 List<SearchResult> ret = new List<SearchResult>();
 
                 if (_storage.HasRepoResults(repo.Owner, repo.Name))
                 {
-                    _logger.Information("{Repo} already downloaded", repo.Owner + "/" + repo.Name);
+                    _logger.Verbose("{Repo} already downloaded", repo.Owner + "/" + repo.Name);
                     ret = _storage.GetRepoResults(repo.Owner, repo.Name).ToList();
                 }
                 else
@@ -102,11 +109,74 @@ namespace ProjectJsonAnalyzer
                         }
 
                         operation = new { Operation = "Search", Repo = repo.Owner + "/" + repo.Name, Page = request.Page };
-                        var result = await
-                            _searchThrottler.RunAsync(
-                                () => _client.Search.SearchCode(request),
+
+                        SearchCodeResult result;
+                        ApiValidationException validationException = null;
+                        ExceptionDispatchInfo validationExceptionDispatchInfo = null;
+
+                        result = await
+                            _searchThrottler.RunAsync<SearchCodeResult>(
+                                async () =>
+                                {
+                                    //  Do a try/catch inside here so that renamed repos don't get logged as failures by the throttler
+                                    try
+                                    {
+                                        return await _client.Search.SearchCode(request);
+                                    }
+                                    catch (ApiValidationException ex) when (handleRenamedRepos)
+                                    {
+                                        validationException = ex;
+                                        validationExceptionDispatchInfo = ExceptionDispatchInfo.Capture(ex);
+                                        return null;
+                                    }
+                                },
                                 operation
                             );
+                        
+                        if (result == null && validationException != null)
+                        {
+                            _logger.Information(validationException, "Api validation exception for {Operation}, checking for renamed repo", operation);
+
+                            var renameOperation = new { Operation = "RenameCheck", Repo = repo.Owner + "/" + repo.Name };
+
+                            var potentiallyRenamedRepo = await _throttler.RunAsync<Repository>(
+                                async () =>
+                                {
+                                    try
+                                    {
+                                        return await _client.Repository.Get(repo.Owner, repo.Name);
+                                    }
+                                    catch (NotFoundException)
+                                    {
+                                        return null;
+                                    }
+                                },
+                                renameOperation
+                                );
+
+                            if (potentiallyRenamedRepo == null)
+                            {
+                                _logger.Information("Repo {Repo} not found", renameOperation.Repo);
+                                return Enumerable.Empty<SearchResult>();
+                            }
+
+                            if (potentiallyRenamedRepo.Owner.Login == repo.Owner && potentiallyRenamedRepo.Name == repo.Name)
+                            {
+                                _logger.Error("Repo was not renamed, Api validation must have failed for some other reason for {Operation}", operation);
+                                validationExceptionDispatchInfo.Throw();
+                            }
+
+                            var newRepo = repo.Clone();
+
+                            newRepo.Owner = potentiallyRenamedRepo.Owner.Login;
+                            newRepo.Name = potentiallyRenamedRepo.Name;
+
+                            _logger.Information("Repo {OldRepo} has been renamed to {Repo}", renameOperation.Repo, newRepo.Owner + "/" + newRepo.Name);
+
+                            _storage.SaveRenamedRepo(repo.Owner, repo.Name, newRepo);
+
+                            return await SearchRepoAsync(newRepo, false);
+                        }
 
                         foreach (var item in result.Items)
                         {
@@ -140,18 +210,23 @@ namespace ProjectJsonAnalyzer
             }
             catch (Exception ex)
             {
-                _logger.Error(ex, "{Operation} failed", new[] { operation });
+                _logger.Error(ex, "{Operation} failed", operation);
                 return Enumerable.Empty<SearchResult>();
             }
         }
 
         async Task DownloadFileAsync(SearchResult searchResult)
         {
+            if (_cancelToken.IsCancellationRequested)
+            {
+                return;
+            }
+
             var operation = new { Operation = "Download", Repo = searchResult.RepoOwner + "/" + searchResult.RepoName, Path = searchResult.ResultPath };
 
             if (_storage.HasFile(searchResult.RepoOwner, searchResult.RepoName, searchResult.ResultPath))
             {
-                _logger.Information("{Path} was already downloaded from {Repo}", searchResult.ResultPath,
+                _logger.Verbose("{Path} was already downloaded from {Repo}", searchResult.ResultPath,
                     searchResult.RepoOwner + "/" + searchResult.RepoName);
             }
             else

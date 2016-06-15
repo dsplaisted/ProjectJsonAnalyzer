@@ -141,11 +141,14 @@ namespace ProjectJsonAnalyzer
 
                 _logger.Information("Finished {@Operation} ({RemainingRequests}/{RequestLimit})", task.OperationDescription, _remainingRequests, _limit);
 
-                lock (_lockObject)
+                if (result != null)
                 {
-                    _remainingRequests = result.RateLimit.Remaining;
-                    _limit = result.RateLimit.Limit;
-                    _resetTime = result.RateLimit.Reset;
+                    lock (_lockObject)
+                    {
+                        _remainingRequests = result.RateLimit.Remaining;
+                        _limit = result.RateLimit.Limit;
+                        _resetTime = result.RateLimit.Reset;
+                    }
                 }
 
                 task.CompletionSource.SetResult(result);

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
@@ -24,6 +25,16 @@ namespace ProjectJsonAnalyzer
             ret.Language = fields[3];
             ret.Stars = int.Parse(fields[4]);
             return ret;
+        }
+
+        public override string ToString()
+        {
+            return string.Join("\t", ID, Owner, Name, Language, Stars.ToString(CultureInfo.InvariantCulture));
+        }
+
+        public GitHubRepo Clone()
+        {
+            return (GitHubRepo)MemberwiseClone();
         }
 
     }
