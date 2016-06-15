@@ -24,6 +24,10 @@ namespace ProjectJsonAnalyzer
 
         string GetFilePath(string owner, string name, string path)
         {
+            if (path.StartsWith("/", StringComparison.Ordinal))
+            {
+                path = path.Substring(1);
+            }
             return Path.Combine(GetRepoFolder(owner, name), path.Replace('/', Path.DirectorySeparatorChar));
         }
 

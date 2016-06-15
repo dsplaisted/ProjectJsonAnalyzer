@@ -135,7 +135,7 @@ namespace ProjectJsonAnalyzer
                         
                         if (result == null && validationException != null)
                         {
-                            _logger.Information(validationException, "Api validation exception for {Operation}, checking for renamed repo", operation);
+                            _logger.Debug(validationException, "Api validation exception for {Operation}, checking for renamed repo", operation);
 
                             var renameOperation = new { Operation = "RenameCheck", Repo = repo.Owner + "/" + repo.Name };
 
