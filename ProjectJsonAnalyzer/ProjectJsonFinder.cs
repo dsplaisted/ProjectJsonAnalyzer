@@ -42,29 +42,29 @@ namespace ProjectJsonAnalyzer
             _httpClient = new HttpClient();
         }
 
-        public async Task FindProjectJsonAsync(string repoListPath)
+        public async Task FindProjectJsonAsync()
         {
             TransformManyBlock<GitHubRepo, SearchResult> repoSearchBlock = new TransformManyBlock<GitHubRepo, SearchResult>(repo => SearchRepoAsync(repo),
                 new ExecutionDataflowBlockOptions()
                 {
-                    MaxDegreeOfParallelism = 1
+                    MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+                    //MaxDegreeOfParallelism = 1
                 });
 
             ActionBlock<SearchResult> downloadFileBlock = new ActionBlock<SearchResult>(DownloadFileAsync, new ExecutionDataflowBlockOptions()
             {
-                 //MaxDegreeOfParallelism = Environment.ProcessorCount * 4
-                 MaxDegreeOfParallelism = 1
+                 MaxDegreeOfParallelism = Environment.ProcessorCount * 4
+                 //MaxDegreeOfParallelism = 1
             });
 
             repoSearchBlock.LinkTo(downloadFileBlock, new DataflowLinkOptions() { PropagateCompletion = true });
 
-            foreach (var line in File.ReadLines(repoListPath)/*.Take(1)*/)
+            foreach (var repo in _storage.GetAllRepos())
             {
                 if (_cancelToken.IsCancellationRequested)
                 {
                     break;
                 }
-                var repo = GitHubRepo.Parse(line);
                 repoSearchBlock.Post(repo);
             }
 
@@ -85,6 +85,12 @@ namespace ProjectJsonAnalyzer
                 }
 
                 List<SearchResult> ret = new List<SearchResult>();
+
+                if (_storage.IsNotFound(repo.Owner, repo.Name))
+                {
+                    _logger.Verbose("{Repo} previously not found, skipping", repo.Owner + "/" + repo.Name);
+                    return Enumerable.Empty<SearchResult>();
+                }
 
                 if (_storage.HasRepoResults(repo.Owner, repo.Name))
                 {
@@ -157,6 +163,7 @@ namespace ProjectJsonAnalyzer
                             if (potentiallyRenamedRepo == null)
                             {
                                 _logger.Information("Repo {Repo} not found", renameOperation.Repo);
+                                _storage.SaveNotFound(repo.Owner, repo.Name, true);
                                 return Enumerable.Empty<SearchResult>();
                             }
 

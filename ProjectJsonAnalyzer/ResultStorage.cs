@@ -10,11 +10,24 @@ namespace ProjectJsonAnalyzer
 {
     class ResultStorage
     {
+        string _repoListFile;
         string _storageRoot;
 
-        public ResultStorage(string storageRoot)
+
+        public ResultStorage(string storageRoot, string repoListFile)
         {
             _storageRoot = storageRoot;
+            _repoListFile = repoListFile;
+        }
+
+        public IEnumerable<GitHubRepo> GetAllRepos()
+        {
+            foreach (var line in File.ReadLines(_repoListFile))
+            {
+                var repo = GitHubRepo.Parse(line);
+                yield return repo;
+            }
+
         }
 
         string GetRepoFolder(string owner, string name)
@@ -64,6 +77,29 @@ namespace ProjectJsonAnalyzer
             string renameFile = Path.Combine(GetRepoFolder(oldOwner, oldName), "rename.txt");
             Directory.CreateDirectory(Path.GetDirectoryName(renameFile));
             File.WriteAllText(renameFile, newRepo.ToString());
+        }
+
+        public bool IsNotFound(string owner, string name)
+        {
+            string notFoundMarkerFile = Path.Combine(GetRepoFolder(owner, name), "notfound.txt");
+            return File.Exists(notFoundMarkerFile);
+        }
+
+        public void SaveNotFound(string owner, string name, bool value)
+        {
+            string notFoundMarkerFile = Path.Combine(GetRepoFolder(owner, name), "notfound.txt");
+            if (value)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(notFoundMarkerFile));
+                File.WriteAllText(notFoundMarkerFile, "");
+            }
+            else
+            {
+                if (File.Exists(notFoundMarkerFile))
+                {
+                    File.Delete(notFoundMarkerFile);
+                }
+            }
         }
 
         string GetResultsFilePath(string owner, string name)
