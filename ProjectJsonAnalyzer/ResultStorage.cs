@@ -35,7 +35,7 @@ namespace ProjectJsonAnalyzer
             return Path.Combine(_storageRoot, owner, name);
         }
 
-        string GetFilePath(string owner, string name, string path)
+        public string GetFilePath(string owner, string name, string path)
         {
             if (path.StartsWith("/", StringComparison.Ordinal))
             {

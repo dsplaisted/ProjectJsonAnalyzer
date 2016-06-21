@@ -187,7 +187,15 @@ namespace ProjectJsonAnalyzer
 
                         foreach (var item in result.Items)
                         {
-                            ret.Add(new SearchResult(item));
+                            string destFile = _storage.GetFilePath(repo.Owner, repo.Name, item.Path);
+                            if (Path.GetFileName(destFile).Equals("project.json", StringComparison.OrdinalIgnoreCase))
+                            {
+                                ret.Add(new SearchResult(item));
+                            }
+                            else
+                            {
+                                _logger.Information("{Path} was not a project.json file in {Repo}, ignoring", item.Path, repo.Owner + "/" + repo.Name);
+                            }
                         }
 
                         if (result.IncompleteResults)

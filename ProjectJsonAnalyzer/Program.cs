@@ -15,11 +15,14 @@ namespace ProjectJsonAnalyzer
     {
         static void Main(string[] args)
         {
-            new Program().MainAsync().Wait();
-            //new Program().Analyze();
+            //new Program().MainAsync().Wait();
+            new Program().Analyze();
+            //new Program().DeleteFiles();
         }
 
         ResultStorage _storage;
+
+        ILogger _logger;
 
         public Program()
         {
@@ -28,6 +31,12 @@ namespace ProjectJsonAnalyzer
 
             _storage = new ResultStorage(Path.Combine(Directory.GetCurrentDirectory(), "Storage"),
                 repoListFile);
+
+            _logger = new LoggerConfiguration()
+                   .MinimumLevel.Verbose()
+                   .WriteTo.LiterateConsole(restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
+                   .WriteTo.Seq("http://localhost:5341")
+                   .CreateLogger();
         }
 
         async Task MainAsync()
@@ -36,16 +45,10 @@ namespace ProjectJsonAnalyzer
             {
                 CancellationTokenSource cancellationSource = new CancellationTokenSource();
 
-                ILogger logger = new LoggerConfiguration()
-                    .MinimumLevel.Verbose()
-                    .WriteTo.LiterateConsole(restrictedToMinimumLevel: Serilog.Events.LogEventLevel.Information)
-                    .WriteTo.Seq("http://localhost:5341")
-                    .CreateLogger();
-
                 Console.CancelKeyPress += (o, e) =>
                 {
                     e.Cancel = true;
-                    logger.Information("Cancellation requested");
+                    _logger.Information("Cancellation requested");
                     cancellationSource.Cancel();
                 };
 
@@ -56,7 +59,7 @@ namespace ProjectJsonAnalyzer
                     accessToken = File.ReadAllLines(tokenFile).First();
                 }
 
-                var finder = new ProjectJsonFinder(_storage, logger, cancellationSource.Token, accessToken);
+                var finder = new ProjectJsonFinder(_storage, _logger, cancellationSource.Token, accessToken);
                 await finder.FindProjectJsonAsync();
             }
             catch (Exception ex)
@@ -160,6 +163,59 @@ namespace ProjectJsonAnalyzer
 
         }
 
-        
+        void DeleteFiles()
+        {
+            HashSet<string> visitedRepos = new HashSet<string>();
+            foreach (var repo in _storage.GetAllRepos())
+            {
+                var newRepo = repo;
+                GitHubRepo renamedRepo;
+                while ((renamedRepo = _storage.GetRenamedRepo(newRepo)) != null)
+                {
+                    newRepo = renamedRepo;
+
+                }
+
+                string repoName = newRepo.Owner + "/" + newRepo.Name;
+                if (visitedRepos.Contains(repoName))
+                {
+                    continue;
+                }
+                visitedRepos.Add(repoName);
+
+                if (_storage.HasRepoResults(newRepo.Owner, newRepo.Name))
+                {
+                    bool changed = false;
+                    var results = _storage.GetRepoResults(newRepo.Owner, newRepo.Name);
+                    List<SearchResult> newResults = new List<SearchResult>();
+                    foreach (var r in results)
+                    {
+                        string filePath = _storage.GetFilePath(newRepo.Owner, newRepo.Name, r.ResultPath);
+                        if (Path.GetFileName(filePath).Equals("project.json", StringComparison.OrdinalIgnoreCase))
+                        {
+                            newResults.Add(r);
+                        }
+                        else
+                        {
+                            changed = true;
+                            if (File.Exists(filePath))
+                            {
+                                _logger.Information("Deleting {Path} from {Repo}", r.ResultPath, newRepo.Owner + "/" + newRepo.Name);
+                                File.Delete(filePath);
+                            }
+                            else
+                            {
+                                _logger.Information("{Path} not present to delete from {Repo}", r.ResultPath, newRepo.Owner + "/" + newRepo.Name);
+                            }
+                        }
+                    }
+
+                    if (changed)
+                    {
+                        _storage.RecordRepoResults(newRepo.Owner, newRepo.Name, newResults);
+                    }
+                }
+            }
+        }
     }
 }
