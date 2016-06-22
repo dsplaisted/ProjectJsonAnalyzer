@@ -15,8 +15,8 @@ namespace ProjectJsonAnalyzer
     {
         static void Main(string[] args)
         {
-            new Program().MainAsync().Wait();
-            //new Program().Analyze();
+            //new Program().MainAsync().Wait();
+            new Program().Analyze();
             //new Program().DeleteFiles();
         }
 
@@ -86,45 +86,64 @@ namespace ProjectJsonAnalyzer
 
             Dictionary<string, int> ownerCounts = new Dictionary<string, int>();
 
-
-            foreach (var repo in _storage.GetAllRepos())
+            using (var sw = new StreamWriter("stats.txt"))
             {
-                totalRepos++;
-
-                if (_storage.HasRepoResults(repo.Owner, repo.Name))
+                sw.WriteLine("Owner\tRepo name\tPath\tFrameworkCount\t" + string.Join("\t", ProjectJsonAnalysis.PropertyNames) + "\tParsing error");
+                foreach (var repo in _storage.GetAllRepos())
                 {
-                    totalReposSearched++;
+                    totalRepos++;
 
-                    foreach (var result in _storage.GetRepoResults(repo.Owner, repo.Name))
+                    if (_storage.HasRepoResults(repo.Owner, repo.Name))
                     {
-                        if (ownerCounts.ContainsKey(repo.Owner))
+                        totalReposSearched++;
+
+                        foreach (var result in _storage.GetRepoResults(repo.Owner, repo.Name))
                         {
-                            ownerCounts[repo.Owner]++;
-                        }
-                        else
-                        {
-                            ownerCounts[repo.Owner] = 1;
+                            if (ownerCounts.ContainsKey(repo.Owner))
+                            {
+                                ownerCounts[repo.Owner]++;
+                            }
+                            else
+                            {
+                                ownerCounts[repo.Owner] = 1;
+                            }
+
+                            totalResults++;
+                            if (_storage.HasFile(repo.Owner, repo.Name, result.ResultPath))
+                            {
+                                downloadedFiles++;
+                                string filePath = _storage.GetFilePath(repo.Owner, repo.Name, result.ResultPath);
+                                var json = File.ReadAllText(filePath);
+                                try
+                                {
+                                    var analysis = ProjectJsonAnalysis.Analyze(json);
+
+                                    sw.Write(string.Join("\t", repo.Owner, repo.Name, result.ResultPath, analysis.Frameworks.Count));
+                                    sw.Write("\t");
+                                    sw.Write(string.Join("\t", ProjectJsonAnalysis.PropertyNames.Select(pn => analysis.PropertiesDefined.Contains(pn) ? "Yes" : "No")));
+                                    sw.Write("\t" + analysis.ParsingError);
+                                    sw.WriteLine();
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.Error(ex, "Error parsing {Path} in {Repo}", result.ResultPath, repo.Owner + "/" + repo.Name);
+                                }
+                            }
+                            else
+                            {
+                                remainingFiles++;
+                            }
                         }
 
-                        totalResults++;
-                        if (_storage.HasFile(repo.Owner, repo.Name, result.ResultPath))
-                        {
-                            downloadedFiles++;
-                        }
-                        else
-                        {
-                            remainingFiles++;
-                        }
                     }
-
-                }
-                else if (_storage.IsNotFound(repo.Owner, repo.Name))
-                {
-                    notFoundRepos++;
-                }
-                else
-                {
-                    remainingRepos++;
+                    else if (_storage.IsNotFound(repo.Owner, repo.Name))
+                    {
+                        notFoundRepos++;
+                    }
+                    else
+                    {
+                        remainingRepos++;
+                    }
                 }
             }
 
