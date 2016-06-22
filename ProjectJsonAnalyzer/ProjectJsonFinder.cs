@@ -78,12 +78,6 @@ namespace ProjectJsonAnalyzer
 
             try
             {
-                GitHubRepo renamedRepo;
-                while ((renamedRepo = _storage.GetRenamedRepo(repo)) != null)
-                {
-                    repo = renamedRepo;
-                }
-
                 List<SearchResult> ret = new List<SearchResult>();
 
                 if (_storage.IsNotFound(repo.Owner, repo.Name))

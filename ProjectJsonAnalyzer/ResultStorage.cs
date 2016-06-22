@@ -22,13 +22,38 @@ namespace ProjectJsonAnalyzer
 
         public IEnumerable<GitHubRepo> GetAllRepos()
         {
+            List<GitHubRepo> ret = new List<GitHubRepo>();
+
+            HashSet<string> visitedRepos = new HashSet<string>();
+            foreach (var repo in ReadRepos())
+            {
+                var newRepo = repo;
+                GitHubRepo renamedRepo;
+                while ((renamedRepo = GetRenamedRepo(newRepo)) != null)
+                {
+                    newRepo = renamedRepo;
+                }
+                string repoName = newRepo.Owner + "/" + newRepo.Name;
+                if (visitedRepos.Contains(repoName))
+                {
+                    continue;
+                }
+                visitedRepos.Add(repoName);
+
+                ret.Add(newRepo);
+            }
+            return ret;
+        }
+
+        IEnumerable<GitHubRepo> ReadRepos()
+        {
             foreach (var line in File.ReadLines(_repoListFile))
             {
                 var repo = GitHubRepo.Parse(line);
                 yield return repo;
             }
-
         }
+
 
         string GetRepoFolder(string owner, string name)
         {
@@ -64,7 +89,14 @@ namespace ProjectJsonAnalyzer
             if (File.Exists(renameFile))
             {
                 var line = File.ReadAllLines(renameFile).First();
-                return GitHubRepo.Parse(line);
+                var ret = GitHubRepo.Parse(line);
+
+                if (ret.Owner == repo.Owner && ret.Name == repo.Name)
+                {
+                    throw new InvalidDataException($"Repo {ret.Owner}/{ret.Name} redirects to itself");
+                }
+
+                return ret;
             }
             else
             {

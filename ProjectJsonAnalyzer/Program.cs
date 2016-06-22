@@ -15,8 +15,8 @@ namespace ProjectJsonAnalyzer
     {
         static void Main(string[] args)
         {
-            //new Program().MainAsync().Wait();
-            new Program().Analyze();
+            new Program().MainAsync().Wait();
+            //new Program().Analyze();
             //new Program().DeleteFiles();
         }
 
@@ -78,53 +78,36 @@ namespace ProjectJsonAnalyzer
         {
             int totalRepos = 0;
             int totalReposSearched = 0;
-            int renamedRepos = 0;
             int notFoundRepos = 0;
             int remainingRepos = 0;
             int totalResults = 0;
             int downloadedFiles = 0;
             int remainingFiles = 0;
 
-            HashSet<string> visitedRepos = new HashSet<string>();
             Dictionary<string, int> ownerCounts = new Dictionary<string, int>();
 
 
             foreach (var repo in _storage.GetAllRepos())
             {
-                var newRepo = repo;
-                GitHubRepo renamedRepo;
-                while ((renamedRepo = _storage.GetRenamedRepo(newRepo)) != null)
-                {
-                    newRepo = renamedRepo;
-                    renamedRepos++;
-                }
-
-                string repoName = newRepo.Owner + "/" + newRepo.Name;
-                if (visitedRepos.Contains(repoName))
-                {
-                    continue;
-                }
-                visitedRepos.Add(repoName);
-
                 totalRepos++;
 
-                if (_storage.HasRepoResults(newRepo.Owner, newRepo.Name))
+                if (_storage.HasRepoResults(repo.Owner, repo.Name))
                 {
                     totalReposSearched++;
 
-                    foreach (var result in _storage.GetRepoResults(newRepo.Owner, newRepo.Name))
+                    foreach (var result in _storage.GetRepoResults(repo.Owner, repo.Name))
                     {
-                        if (ownerCounts.ContainsKey(newRepo.Owner))
+                        if (ownerCounts.ContainsKey(repo.Owner))
                         {
-                            ownerCounts[newRepo.Owner]++;
+                            ownerCounts[repo.Owner]++;
                         }
                         else
                         {
-                            ownerCounts[newRepo.Owner] = 1;
+                            ownerCounts[repo.Owner] = 1;
                         }
 
                         totalResults++;
-                        if (_storage.HasFile(newRepo.Owner, newRepo.Name, result.ResultPath))
+                        if (_storage.HasFile(repo.Owner, repo.Name, result.ResultPath))
                         {
                             downloadedFiles++;
                         }
@@ -135,7 +118,7 @@ namespace ProjectJsonAnalyzer
                     }
 
                 }
-                else if (_storage.IsNotFound(newRepo.Owner, newRepo.Name))
+                else if (_storage.IsNotFound(repo.Owner, repo.Name))
                 {
                     notFoundRepos++;
                 }
@@ -147,7 +130,6 @@ namespace ProjectJsonAnalyzer
 
             Console.WriteLine($"Total repos:        {totalRepos}");
             Console.WriteLine($"Repos searched:     {totalReposSearched}");
-            Console.WriteLine($"Renamed repos:      {renamedRepos}");
             Console.WriteLine($"Not found repos:    {notFoundRepos}");
             Console.WriteLine($"Remaining repos:    {remainingRepos}");
             Console.WriteLine($"Total results:      {totalResults}");
@@ -165,32 +147,16 @@ namespace ProjectJsonAnalyzer
 
         void DeleteFiles()
         {
-            HashSet<string> visitedRepos = new HashSet<string>();
             foreach (var repo in _storage.GetAllRepos())
             {
-                var newRepo = repo;
-                GitHubRepo renamedRepo;
-                while ((renamedRepo = _storage.GetRenamedRepo(newRepo)) != null)
-                {
-                    newRepo = renamedRepo;
-
-                }
-
-                string repoName = newRepo.Owner + "/" + newRepo.Name;
-                if (visitedRepos.Contains(repoName))
-                {
-                    continue;
-                }
-                visitedRepos.Add(repoName);
-
-                if (_storage.HasRepoResults(newRepo.Owner, newRepo.Name))
+                if (_storage.HasRepoResults(repo.Owner, repo.Name))
                 {
                     bool changed = false;
-                    var results = _storage.GetRepoResults(newRepo.Owner, newRepo.Name);
+                    var results = _storage.GetRepoResults(repo.Owner, repo.Name);
                     List<SearchResult> newResults = new List<SearchResult>();
                     foreach (var r in results)
                     {
-                        string filePath = _storage.GetFilePath(newRepo.Owner, newRepo.Name, r.ResultPath);
+                        string filePath = _storage.GetFilePath(repo.Owner, repo.Name, r.ResultPath);
                         if (Path.GetFileName(filePath).Equals("project.json", StringComparison.OrdinalIgnoreCase))
                         {
                             newResults.Add(r);
@@ -200,19 +166,19 @@ namespace ProjectJsonAnalyzer
                             changed = true;
                             if (File.Exists(filePath))
                             {
-                                _logger.Information("Deleting {Path} from {Repo}", r.ResultPath, newRepo.Owner + "/" + newRepo.Name);
+                                _logger.Information("Deleting {Path} from {Repo}", r.ResultPath, repo.Owner + "/" + repo.Name);
                                 File.Delete(filePath);
                             }
                             else
                             {
-                                _logger.Information("{Path} not present to delete from {Repo}", r.ResultPath, newRepo.Owner + "/" + newRepo.Name);
+                                _logger.Information("{Path} not present to delete from {Repo}", r.ResultPath, repo.Owner + "/" + repo.Name);
                             }
                         }
                     }
 
                     if (changed)
                     {
-                        _storage.RecordRepoResults(newRepo.Owner, newRepo.Name, newResults);
+                        _storage.RecordRepoResults(repo.Owner, repo.Name, newResults);
                     }
                 }
             }
