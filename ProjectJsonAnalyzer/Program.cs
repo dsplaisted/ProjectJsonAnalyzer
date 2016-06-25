@@ -88,7 +88,7 @@ namespace ProjectJsonAnalyzer
 
             using (var sw = new StreamWriter("stats.txt"))
             {
-                sw.WriteLine("Owner\tRepo name\tPath\tFrameworkCount\t" + string.Join("\t", ProjectJsonAnalysis.PropertyNames) + "\tParsing error");
+                sw.WriteLine("Owner\tRepo name\tPath\tFrameworkCount\tTopLevelDependencies\tFrameworkSpecificDependencies\t" + string.Join("\t", ProjectJsonAnalysis.PropertyNames) + "\tParsing error");
                 foreach (var repo in _storage.GetAllRepos())
                 {
                     totalRepos++;
@@ -118,7 +118,7 @@ namespace ProjectJsonAnalyzer
                                 {
                                     var analysis = ProjectJsonAnalysis.Analyze(json);
 
-                                    sw.Write(string.Join("\t", repo.Owner, repo.Name, result.ResultPath, analysis.Frameworks.Count));
+                                    sw.Write(string.Join("\t", repo.Owner, repo.Name, result.ResultPath, analysis.Frameworks.Count, analysis.TopLevelDependencies, analysis.FrameworkSpecificDependencies));
                                     sw.Write("\t");
                                     sw.Write(string.Join("\t", ProjectJsonAnalysis.PropertyNames.Select(pn => analysis.PropertiesDefined.Contains(pn) ? "Yes" : "No")));
                                     sw.Write("\t" + analysis.ParsingError);

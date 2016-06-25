@@ -33,6 +33,7 @@ namespace ProjectJsonAnalyzer
             "requireLicenseAcceptance",
             "embedInteropTypes",
             "compile",
+            "code",
             "content",
             "resource",
             "preprocess",
@@ -51,9 +52,12 @@ namespace ProjectJsonAnalyzer
             "scripts",
         };
 
+        public string ParsingError { get; set; }
         public List<string> Frameworks { get; set; }
         public HashSet<string> PropertiesDefined { get; set; }
-        public string ParsingError { get; set; }
+        public int TopLevelDependencies { get; set; }
+        public int FrameworkSpecificDependencies { get; set; }
+        
 
         public ProjectJsonAnalysis()
         {
@@ -79,10 +83,25 @@ namespace ProjectJsonAnalyzer
             }
             ret.PropertiesDefined = new HashSet<string>(json.Children().Cast<JProperty>().Select(p => p.Name), StringComparer.OrdinalIgnoreCase);
 
+            if (json["dependencies"] != null)
+            {
+                ret.TopLevelDependencies = json["dependencies"].Children().Count();
+            }
+
             if (ret.PropertiesDefined.Contains("frameworks"))
             {
                 ret.Frameworks = json["frameworks"].Children().Cast<JProperty>().Select(p => p.Name).ToList();
+
+                foreach (var framework in json["frameworks"].Children<JProperty>())
+                {
+                    if (framework.Value["dependencies"] != null)
+                    {
+                        ret.FrameworkSpecificDependencies += framework.Value["dependencies"].Children().Count();
+                    }
+                }
             }
+
+
 
             return ret;
         }
