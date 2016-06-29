@@ -74,8 +74,23 @@ namespace ProjectJsonAnalyzer
             }
         }
 
+        //  TODO:
+        //  - Frameworks that are being targeted in each project.json
+
         void Analyze()
         {
+            HashSet<string> microsoftOrgs = new HashSet<string>()
+            {
+                "dotnet",
+                "aspnet",
+                "xamarin",
+                "Microsoft",
+                "Windows-Readiness",
+                "NuGet",
+                "NuGetArchive",
+                "Microsoft-Build-2016",
+            };
+
             int totalRepos = 0;
             int totalReposSearched = 0;
             int notFoundRepos = 0;
@@ -87,8 +102,10 @@ namespace ProjectJsonAnalyzer
             Dictionary<string, int> ownerCounts = new Dictionary<string, int>();
 
             using (var sw = new StreamWriter("stats.txt"))
+            using (var propertiesWriter = new StreamWriter("properties.txt"))
             {
-                sw.WriteLine("Owner\tRepo name\tPath\tFrameworkCount\tTopLevelDependencies\tFrameworkSpecificDependencies\t" + string.Join("\t", ProjectJsonAnalysis.PropertyNames) + "\tParsing error");
+                sw.WriteLine("Owner\tRepo name\tPath\tIsMicrosoftRepo\tFrameworkCount\tTopLevelDependencies\tFrameworkSpecificDependencies\t" + string.Join("\t", ProjectJsonAnalysis.PropertyNames) + "\tParsing error");
+                propertiesWriter.WriteLine("Owner\tRepo name\tPath\tIsMicrosoftRepo\tProperty Name\tProperty Path\tFramework\tValue");
                 foreach (var repo in _storage.GetAllRepos())
                 {
                     totalRepos++;
@@ -118,11 +135,21 @@ namespace ProjectJsonAnalyzer
                                 {
                                     var analysis = ProjectJsonAnalysis.Analyze(json);
 
-                                    sw.Write(string.Join("\t", repo.Owner, repo.Name, result.ResultPath, analysis.Frameworks.Count, analysis.TopLevelDependencies, analysis.FrameworkSpecificDependencies));
+                                    sw.Write(string.Join("\t", repo.Owner, repo.Name, result.ResultPath,
+                                        microsoftOrgs.Contains(repo.Owner) ? "Yes" : "No",
+                                        analysis.Frameworks.Count, analysis.TopLevelDependencies, analysis.FrameworkSpecificDependencies));
                                     sw.Write("\t");
                                     sw.Write(string.Join("\t", ProjectJsonAnalysis.PropertyNames.Select(pn => analysis.PropertiesDefined.Contains(pn) ? "Yes" : "No")));
                                     sw.Write("\t" + analysis.ParsingError);
                                     sw.WriteLine();
+
+                                    foreach (var interestingValue in analysis.InterestingValues)
+                                    {
+                                        propertiesWriter.WriteLine(string.Join("\t",
+                                            repo.Owner, repo.Name, result.ResultPath,
+                                            microsoftOrgs.Contains(repo.Owner) ? "Yes" : "No",
+                                            interestingValue.Name, interestingValue.Path, interestingValue.Framework, interestingValue.Value));
+                                    }
                                 }
                                 catch (Exception ex)
                                 {
