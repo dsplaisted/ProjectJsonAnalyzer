@@ -114,35 +114,54 @@ namespace ProjectJsonAnalyzer
                 }
             }
 
+            if (ret.PropertiesDefined.Contains("runtimes"))
+            {
+                foreach (var runtime in json["runtimes"].Children<JProperty>())
+                {
+                    if (runtime.Value is JObject)
+                    {
+                        ret.AddInterestingValues((JObject)runtime.Value, runtime.Name);
+                    }
+                }
+            }
+
             return ret;
         }
 
-        void AddInterestingValues(JObject frameworkOrRootObject, string framework)
+        void AddInterestingValues(JObject frameworkOrRootObject, string frameworkOrRuntime)
         {
-            AddInterestingValue(frameworkOrRootObject["compile"], framework);
-            AddInterestingValue(frameworkOrRootObject["content"], framework);
-            AddInterestingValue(frameworkOrRootObject["resource"], framework);
-            AddInterestingValue(frameworkOrRootObject["preprocess"], framework);
-            AddInterestingValue(frameworkOrRootObject["publishExclude"], framework);
-            AddInterestingValue(frameworkOrRootObject["shared"], framework);
-            AddInterestingValue(frameworkOrRootObject["packInclude"], framework);
-            AddInterestingValue(frameworkOrRootObject["exclude"], framework);
-            AddInterestingValue(frameworkOrRootObject["contentBuiltIn"], framework);
-            AddInterestingValue(frameworkOrRootObject["compileBuiltIn"], framework);
-            AddInterestingValue(frameworkOrRootObject["resourceBuiltIn"], framework);
-            AddInterestingValue(frameworkOrRootObject["excludeBuiltIn"], framework);
+            InterestingValues.Add(new ProjectJsonValue()
+            {
+                Name = string.Empty,
+                Path = frameworkOrRootObject.Path,
+                FrameworkOrRuntime = frameworkOrRuntime,
+                Value = string.Empty
+            });
+            
+            AddInterestingValue(frameworkOrRootObject["compile"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["content"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["resource"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["preprocess"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["publishExclude"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["shared"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["packInclude"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["exclude"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["contentBuiltIn"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["compileBuiltIn"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["resourceBuiltIn"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["excludeBuiltIn"], frameworkOrRuntime);
 
             
             
-            AddInterestingValue(frameworkOrRootObject["scripts"]?["precompile"], framework);
-            AddInterestingValue(frameworkOrRootObject["scripts"]?["postcompile"], framework);
-            AddInterestingValue(frameworkOrRootObject["scripts"]?["prepublish"], framework);
-            AddInterestingValue(frameworkOrRootObject["scripts"]?["postpublish"], framework);
+            AddInterestingValue(frameworkOrRootObject["scripts"]?["precompile"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["scripts"]?["postcompile"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["scripts"]?["prepublish"], frameworkOrRuntime);
+            AddInterestingValue(frameworkOrRootObject["scripts"]?["postpublish"], frameworkOrRuntime);
 
             
-            AddInterestingDictionary(frameworkOrRootObject["commands"], framework);
-            AddInterestingDictionary(frameworkOrRootObject["tools"], framework);
-            AddInterestingDictionary(frameworkOrRootObject["dependencies"], framework);
+            AddInterestingDictionary(frameworkOrRootObject["commands"], frameworkOrRuntime);
+            AddInterestingDictionary(frameworkOrRootObject["tools"], frameworkOrRuntime);
+            AddInterestingDictionary(frameworkOrRootObject["dependencies"], frameworkOrRuntime);
 
         }
 
@@ -154,7 +173,7 @@ namespace ProjectJsonAnalyzer
                 {
                     Name = GetTokenName(token),
                     Path = token.Path,
-                    Framework = framework,
+                    FrameworkOrRuntime = framework,
                     Value = token.ToString(Formatting.None)
                 });
             }
@@ -171,7 +190,7 @@ namespace ProjectJsonAnalyzer
                     {
                         Name = GetTokenName(token),
                         Path = token.Path,
-                        Framework = framework,
+                        FrameworkOrRuntime = framework,
                         Value = child.ToString(Formatting.None)
                     });
                 }
@@ -199,7 +218,7 @@ namespace ProjectJsonAnalyzer
     {
         public string Name { get; set; }
         public string Path { get; set; }
-        public string Framework { get; set; }
+        public string FrameworkOrRuntime { get; set; }
         public string Value { get; set; }
     }
 }

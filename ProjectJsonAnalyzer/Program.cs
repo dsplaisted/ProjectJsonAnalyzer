@@ -105,7 +105,7 @@ namespace ProjectJsonAnalyzer
             using (var propertiesWriter = new StreamWriter("properties.txt"))
             {
                 sw.WriteLine("Owner\tRepo name\tPath\tIsMicrosoftRepo\tFrameworkCount\tTopLevelDependencies\tFrameworkSpecificDependencies\t" + string.Join("\t", ProjectJsonAnalysis.PropertyNames) + "\tParsing error");
-                propertiesWriter.WriteLine("Owner\tRepo name\tPath\tIsMicrosoftRepo\tProperty Name\tProperty Path\tFramework\tValue");
+                propertiesWriter.WriteLine("Owner\tRepo name\tPath\tIsMicrosoftRepo\tProperty Name\tProperty Path\tFramework/Runtime\tValue");
                 foreach (var repo in _storage.GetAllRepos())
                 {
                     totalRepos++;
@@ -148,7 +148,7 @@ namespace ProjectJsonAnalyzer
                                         propertiesWriter.WriteLine(string.Join("\t",
                                             repo.Owner, repo.Name, result.ResultPath,
                                             microsoftOrgs.Contains(repo.Owner) ? "Yes" : "No",
-                                            interestingValue.Name, interestingValue.Path, interestingValue.Framework, interestingValue.Value));
+                                            interestingValue.Name, interestingValue.Path, interestingValue.FrameworkOrRuntime, interestingValue.Value));
                                     }
                                 }
                                 catch (Exception ex)
@@ -191,6 +191,7 @@ namespace ProjectJsonAnalyzer
 
         }
 
+        //  Delete files inadvertently downloaded (project.lock.json, for example)
         void DeleteFiles()
         {
             foreach (var repo in _storage.GetAllRepos())
